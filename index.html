@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Super Richard Quest - ¡Feliz Día del Padre!</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     touch-action: none;
     user-select: none;
@@ -43,6 +43,7 @@
     align-items: center;
     gap: 6px;
     padding: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 20px));
     background: #0a0a1a;
     width: 100%;
     border-top: 2px solid #333;
