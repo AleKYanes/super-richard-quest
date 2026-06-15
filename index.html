@@ -686,6 +686,14 @@ function drawTutorial() {
   ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh);
   ctx.font='7px "Press Start 2P"'; ctx.fillStyle='#fff';
   ctx.fillText(game.tutorialStep===TUTORIAL_STEPS.length-1?'¡JUGAR!':'SIGUIENTE ▶',LOGICAL_W/2,by+15);
+  // Skip button (only on steps before the last)
+  if(game.tutorialStep < TUTORIAL_STEPS.length-1){
+    const sw=80,sh=16,sx2=px2+pw-sw-6,sy2=py2+6;
+    ctx.fillStyle='#1a1a2a'; ctx.strokeStyle='#445566'; ctx.lineWidth=1;
+    ctx.fillRect(sx2,sy2,sw,sh); ctx.strokeRect(sx2,sy2,sw,sh);
+    ctx.font='5px "Press Start 2P"'; ctx.fillStyle='#778899';
+    ctx.fillText('SALTAR »»',sx2+sw/2,sy2+11);
+  }
 }
 
 // ─── DIFFICULTY SELECT ────────────────────────────────────────────────────────
@@ -1043,6 +1051,11 @@ function drawGround() {
 function handleCanvasInput(lx,ly) {
   if(game.state==='tutorial'){
     const ph=160,py2=(LOGICAL_H-ph)/2-10,bw=130,bh=22,bx=(LOGICAL_W-bw)/2,by=py2+ph-30;
+    // Skip button hit area
+    const sw=80,sh=16,sx2=(LOGICAL_W-300)/2+300-sw-6,sy2=py2+6;
+    if(lx>=sx2&&lx<=sx2+sw&&ly>=sy2&&ly<=sy2+sh){
+      game.state='diffSelect'; return;
+    }
     if(lx>=bx&&lx<=bx+bw&&ly>=by&&ly<=by+bh){
       if(game.tutorialStep<TUTORIAL_STEPS.length-1) game.tutorialStep++;
       else game.state='diffSelect';
