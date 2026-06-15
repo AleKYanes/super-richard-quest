@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Super Richard Quest - ¡Feliz Día del Padre!</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #gameCanvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    cursor: none;
+  }
+  #controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    background: #0a0a1a;
+    width: 100%;
+    max-width: 480px;
+    border-top: 2px solid #333;
+  }
+  .btn-row { display: flex; gap: 8px; justify-content: center; align-items: center; }
+  .game-btn {
+    width: 52px; height: 52px; border-radius: 8px; border: 2px solid #555;
+    font-family: 'Press Start 2P', monospace; font-size: 11px; font-weight: bold;
+    color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    touch-action: none; -webkit-tap-highlight-color: transparent;
+    transition: filter 0.05s; flex-shrink: 0;
+  }
+  .game-btn:active, .game-btn.pressed { filter: brightness(0.6); }
+  .btn-left  { background: #1a2a4a; border-color: #4488cc; }
+  .btn-right { background: #1a2a4a; border-color: #4488cc; }
+  .btn-up    { background: #1a4a1a; border-color: #44cc44; }
+  .btn-a     { background: #4a1a1a; border-color: #cc4444; }
+  .btn-y     { background: #2a1a4a; border-color: #8844cc; }
+  .btn-x     { background: #1a3a4a; border-color: #44aacc; }
+  .btn-b     { background: #4a3a1a; border-color: #ccaa44; }
+  .btn-label { font-size: 8px; color: #aaa; text-align: center; font-family: 'Press Start 2P', monospace; line-height: 1.2; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="controls">
+  <div class="btn-row">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+      <button class="game-btn btn-up" id="btnUp">▲</button>
+      <div class="btn-row">
+        <button class="game-btn btn-left" id="btnLeft">◀</button>
+        <button class="game-btn btn-right" id="btnRight">▶</button>
+      </div>
+    </div>
+    <div style="width:20px"></div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div class="btn-row">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <button class="game-btn btn-y" id="btnY">Y</button>
+          <span class="btn-label">Ki Blast</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <button class="game-btn btn-x" id="btnX">X</button>
+          <span class="btn-label">Kamehameha</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <button class="game-btn btn-a" id="btnA">A</button>
+          <span class="btn-label">Puñetazo</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <button class="game-btn btn-b" id="btnB">B</button>
+          <span class="btn-label">Cachirula</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+const LOGICAL_W = 360, LOGICAL_H = 240;
+
+function resize() {
+  const controlsH = document.getElementById('controls').offsetHeight || 130;
+  const availH = window.innerHeight - controlsH;
+  const scale = Math.min(window.innerWidth / LOGICAL_W, availH / LOGICAL_H);
+  canvas.style.width  = (LOGICAL_W * scale) + 'px';
+  canvas.style.height = (LOGICAL_H * scale) + 'px';
+  canvas.width  = Math.round(LOGICAL_W * scale * DPR);
+  canvas.height = Math.round(LOGICAL_H * scale * DPR);
+  ctx.setTransform(scale * DPR, 0, 0, scale * DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const GROUND_Y = 195;
+const GRAVITY  = 0.5;
+const JUMP_VEL = -10;
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+const keys = {};
+const held = { left:false, right:false, up:false, a:false, y:false, x:false, b:false };
+
+function bindBtn(id, key) {
+  const el = document.getElementById(id);
+  const press   = e => { e.preventDefault(); held[key]=true;  el.classList.add('pressed'); };
+  const release = e => { e.preventDefault(); held[key]=false; el.classList.remove('pressed'); };
+  el.addEventListener('touchstart', press,   { passive:false });
+  el.addEventListener('touchend',   release, { passive:false });
+  el.addEventListener('mousedown',  press);
+  el.addEventListener('mouseup',    release);
+  el.addEventListener('mouseleave', release);
+}
+['left','right','up','a','y','x','b'].forEach(k => bindBtn('btn'+k[0].toUpperCase()+k.slice(1), k));
+document.addEventListener('keydown', e => { keys[e.key]=true; });
+document.addEventListener('keyup',   e => { keys[e.key]=false; });
+
+function isHeld(k) {
+  const m = { left:['ArrowLeft','a','A'], right:['ArrowRight','d','D'],
+               up:['ArrowUp','w','W',' '], a:['z','Z'], y:['x','X'], x:['c','C'], b:['v','V'] };
+  return held[k] || (m[k]||[]).some(kk=>keys[kk]);
+}
+
+// ─── CANVAS COORDINATES ───────────────────────────────────────────────────────
+function canvasCoords(cx, cy) {
+  const r = canvas.getBoundingClientRect();
+  return { lx:(cx-r.left)*(LOGICAL_W/r.width), ly:(cy-r.top)*(LOGICAL_H/r.height) };
+}
+
+// ─── PARTICLES ────────────────────────────────────────────────────────────────
+const particles = [];
+function spawnParticles(x,y,color,count,speed=3,life=30) {
+  for (let i=0;i<count;i++) {
+    const a=Math.random()*Math.PI*2, s=Math.random()*speed+0.5;
+    particles.push({ x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s-1, color, life, maxLife:life, size:Math.random()*3+1 });
+  }
+}
+function updateParticles() {
+  for (let i=particles.length-1;i>=0;i--) {
+    const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.life--;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = p.life/p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(Math.round(p.x-p.size/2), Math.round(p.y-p.size/2), Math.ceil(p.size), Math.ceil(p.size));
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ─── FLOATING NUMBERS ─────────────────────────────────────────────────────────
+const floaters = [];
+function spawnFloater(x,y,text,color='#fff') {
+  floaters.push({ x, y, text, color, life:60, vy:-0.8 });
+}
+function updateFloaters() {
+  for (let i=floaters.length-1;i>=0;i--) {
+    const f=floaters[i]; f.y+=f.vy; f.life--;
+    if(f.life<=0) floaters.splice(i,1);
+  }
+}
+function drawFloaters() {
+  ctx.textAlign='center';
+  for (const f of floaters) {
+    ctx.globalAlpha = Math.min(1,f.life/20);
+    ctx.font='6px "Press Start 2P"';
+    ctx.fillStyle='#000'; ctx.fillText(f.text,f.x+1,f.y+1);
+    ctx.fillStyle=f.color;  ctx.fillText(f.text,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+}
+
+// ─── SCREEN SHAKE ─────────────────────────────────────────────────────────────
+let shakeFrames=0, shakeAmt=0;
+function triggerShake(frames=8,amt=4) { shakeFrames=frames; shakeAmt=amt; }
+function getShakeOffset() {
+  if(shakeFrames<=0) return {sx:0,sy:0};
+  shakeFrames--;
+  return { sx:(Math.random()-.5)*shakeAmt*2, sy:(Math.random()-.5)*shakeAmt*2 };
+}
+
+// ─── STARS ────────────────────────────────────────────────────────────────────
+const stars=[];
+for(let i=0;i<60;i++) stars.push({x:Math.random()*LOGICAL_W,y:Math.random()*(GROUND_Y-40),r:Math.random()<.2?2:1,bright:Math.random()>.7});
+
+// ─── PIXEL HELPER ─────────────────────────────────────────────────────────────
+function pr(x,y,w,h,color) { ctx.fillStyle=color; ctx.fillRect(Math.round(x),Math.round(y),w,h); }
+
+// ─── RICHARD SPRITE ───────────────────────────────────────────────────────────
+function drawRichard(x,y,facingRight,frame,doubleAura) {
+  const S=2;
+  ctx.save();
+  if(!facingRight){ ctx.translate(x+16*S,y); ctx.scale(-1,1); x=0; y=0; }
+  else { ctx.translate(x,y); x=0; y=0; }
+  if(doubleAura){ ctx.shadowColor='#ffaa00'; ctx.shadowBlur=10+Math.sin(Date.now()/100)*5; }
+  // Gi body
+  pr(3*S,8*S,10*S,9*S,'#e07020');
+  pr(3*S,13*S,10*S,2*S,'#222'); // belt
+  // Arms
+  pr(1*S,8*S,2*S,6*S,'#fde8d0'); pr(13*S,8*S,2*S,6*S,'#fde8d0');
+  // Collar
+  pr(5*S,8*S,6*S,3*S,'#fff8f0');
+  // Legs
+  const lo=frame%2===0?0:2;
+  pr(4*S,17*S,3*S,3*S+lo,'#222'); pr(9*S,17*S,3*S,3*S+(2-lo),'#222');
+  pr(3*S,19*S+lo,4*S,2*S,'#333'); pr(9*S,19*S+(2-lo),4*S,2*S,'#333');
+  // Head
+  pr(4*S,1*S,8*S,7*S,'#fde8d0');
+  // DBZ hair
+  pr(3*S,0,10*S,3*S,'#a0724a'); pr(2*S,1*S,2*S,4*S,'#a0724a'); pr(12*S,1*S,2*S,4*S,'#a0724a');
+  pr(4*S,-1*S,2*S,2*S,'#c09060'); pr(8*S,-2*S,2*S,3*S,'#c09060'); pr(11*S,-1*S,2*S,2*S,'#c09060');
+  // Naruto headband
+  pr(3*S,2*S,10*S,2*S,'#5599ee'); pr(6*S,2*S,4*S,2*S,'#aaccff'); pr(7*S,2*S,2*S,2*S,'#fff');
+  // Glasses + eyes
+  pr(5*S,5*S,2*S,2*S,'#1a1a1a'); pr(9*S,5*S,2*S,2*S,'#1a1a1a');
+  ctx.strokeStyle='#888'; ctx.lineWidth=1;
+  ctx.strokeRect(4*S,4*S,4*S,3*S); ctx.strokeRect(8*S,4*S,4*S,3*S);
+  ctx.shadowBlur=0; ctx.restore();
+}
+
+// ─── CACHIRULA SPRITE ─────────────────────────────────────────────────────────
+function drawCachirula(x,y,frame) {
+  const S=2; ctx.save(); ctx.translate(x,y);
+  pr(3*S,0,6*S,3*S,'#3a2a1a');
+  pr(3*S,1*S,6*S,6*S,'#fde8d0');
+  pr(4*S,4*S,2*S,2*S,'#1a1a1a'); pr(7*S,4*S,2*S,2*S,'#1a1a1a');
+  pr(4*S,6*S,4*S,1*S,'#c07050');
+  pr(2*S,7*S,8*S,5*S,'#ee66aa');
+  pr(3*S,12*S,3*S,4*S,'#2255aa'); pr(6*S,12*S,3*S,4*S,'#2255aa');
+  const bo=frame%2===0?0:1;
+  pr(2*S,15*S+bo,3*S,2*S,'#dd2222'); pr(7*S,15*S+(1-bo),3*S,2*S,'#dd2222');
+  ctx.restore();
+}
+
+// ─── SAIBAMAN ─────────────────────────────────────────────────────────────────
+function drawSaibaman(x,y,frame,fl) {
+  const S=2; ctx.save(); ctx.translate(x,y);
+  if(!fl){ ctx.translate(12*S,0); ctx.scale(-1,1); }
+  pr(2*S,0,8*S,8*S,'#44aa44'); pr(3*S,2*S,6*S,4*S,'#66cc66');
+  pr(3*S,3*S,2*S,2*S,'#ff4444'); pr(7*S,3*S,2*S,2*S,'#ff4444');
+  pr(1*S,8*S,10*S,5*S,'#338833');
+  const lo=frame%2===0?0:2;
+  pr(2*S,12*S+lo,3*S,2*S,'#224422'); pr(7*S,12*S+(2-lo),3*S,2*S,'#224422');
+  ctx.restore();
+}
+
+// ─── CHUNIN ───────────────────────────────────────────────────────────────────
+function drawChunin(x,y,frame,fl) {
+  const S=2; ctx.save(); ctx.translate(x,y);
+  if(!fl){ ctx.translate(12*S,0); ctx.scale(-1,1); }
+  pr(3*S,0,6*S,6*S,'#fde8d0'); pr(1*S,6*S,10*S,7*S,'#2255aa');
+  pr(4*S,8*S,4*S,3*S,'#fff');
+  const lo=frame%2===0?0:2;
+  pr(2*S,13*S,3*S,3*S+lo,'#333'); pr(7*S,13*S,3*S,3*S+(2-lo),'#333');
+  pr(2*S,1*S,8*S,2*S,'#aaaaaa');
+  ctx.restore();
+}
+
+// ─── FRIEZA SOLDIER ───────────────────────────────────────────────────────────
+function drawFriezaSoldier(x,y,frame,fl) {
+  const S=2; ctx.save(); ctx.translate(x,y);
+  if(!fl){ ctx.translate(14*S,0); ctx.scale(-1,1); }
+  pr(2*S,0,10*S,6*S,'#7733aa'); pr(4*S,1*S,6*S,4*S,'#9944cc');
+  pr(3*S,2*S,8*S,3*S,'#44ffff');
+  pr(1*S,6*S,12*S,7*S,'#7733aa'); pr(4*S,7*S,6*S,5*S,'#fff');
+  pr(0,8*S,2*S,4*S,'#555'); pr(-1*S,9*S,2*S,2*S,'#888');
+  const lo=frame%2===0?0:2;
+  pr(2*S,13*S,4*S,3*S+lo,'#551177'); pr(8*S,13*S,4*S,3*S+(2-lo),'#551177');
+  ctx.restore();
+}
+
+// ─── SOUND NINJA ─────────────────────────────────────────────────────────────
+function drawSoundNinja(x,y,frame,fl) {
+  const S=2; ctx.save(); ctx.translate(x,y);
+  if(!fl){ ctx.translate(12*S,0); ctx.scale(-1,1); }
+  pr(3*S,0,6*S,6*S,'#fde8d0');
+  pr(2*S,1*S,8*S,2*S,'#888'); pr(4*S,1*S,4*S,2*S,'#aaa'); pr(5*S,1*S,2*S,2*S,'#333');
+  pr(1*S,6*S,10*S,7*S,'#cc6600');
+  pr(0,9*S,13*S,2*S,'#aa8833');
+  const lo=frame%2===0?0:2;
+  pr(2*S,13*S,3*S,3*S+lo,'#442200'); pr(7*S,13*S,3*S,3*S+(2-lo),'#442200');
+  ctx.restore();
+}
+
+// ─── FRIEZA FINAL FORM ────────────────────────────────────────────────────────
+// Sprite is 19 units wide × 27 units tall (×2 px = 38×54 canvas units)
+function drawFrieza(x, y, phase, frame, fl) {
+  const S = 2;
+  const C1 = phase===2 ? '#fff0ff' : '#ffffff';
+  const C2 = phase===2 ? '#dd44ff' : '#9900cc';
+  const C3 = phase===2 ? '#9900cc' : '#660099';
+  const CE = phase===2 ? '#ff44ff' : '#ff0000';
+
+  ctx.save();
+  ctx.translate(x, y);
+  // Flip if player is to the right of Frieza
+  if (!fl) { ctx.translate(19*S, 0); ctx.scale(-1, 1); }
+
+  if (phase===2) {
+    ctx.shadowColor='#ff00ff';
+    ctx.shadowBlur=14+Math.sin(Date.now()/80)*5;
+  }
+
+  // ── TAIL (drawn behind body) ──
+  const tw = frame%2===0 ? 0 : 2;
+  pr(14*S, 14*S+tw,   5*S, 2*S, C2);
+  pr(17*S, 11*S+tw,   3*S, 4*S, C2);
+  pr(18*S, 8*S,        2*S, 4*S, C3);
+  pr(17*S, 6*S,        2*S, 3*S, C3);
+  pr(17*S, 5*S,        1*S, 1*S, C1); // tail tip
+
+  // ── SHOULDER PAULDRONS ──
+  pr(0,    8*S, 4*S, 7*S, C3);   // left outer
+  pr(0,    8*S, 5*S, 3*S, C2);   // left top
+  pr(14*S, 8*S, 5*S, 7*S, C3);   // right outer
+  pr(13*S, 8*S, 5*S, 3*S, C2);   // right top
+
+  // ── TORSO (white) ──
+  pr(3*S, 8*S, 12*S, 10*S, C1);
+  // Chest highlight
+  pr(5*S, 9*S, 8*S, 3*S, phase===2?'#eeddff':'#eeeeee');
+
+  // ── LOWER BODY (purple) ──
+  pr(4*S, 16*S, 11*S, 6*S, C2);
+
+  // ── LEGS (white) ──
+  pr(4*S, 21*S, 4*S, 4*S, C1);
+  pr(11*S,21*S, 4*S, 4*S, C1);
+  // Boots (dark purple)
+  pr(3*S, 24*S, 5*S, 3*S, C3);
+  pr(11*S,24*S, 5*S, 3*S, C3);
+
+  // ── HEAD ──
+  pr(4*S, 0,    10*S, 8*S, C1); // head base
+  // Purple dome on top
+  pr(6*S, 0,    7*S, 4*S, C3);
+  pr(7*S, 0,    5*S, 3*S, C2);
+  // Neck
+  pr(7*S, 7*S,  4*S, 2*S, C1);
+  // Cheek marks (iconic Frieza dots)
+  pr(4*S, 4*S,  2*S, 2*S, C2);
+  pr(12*S,4*S,  2*S, 2*S, C2);
+  // Eyes
+  pr(6*S, 3*S,  2*S, 2*S, CE);
+  pr(10*S,3*S,  2*S, 2*S, CE);
+  // Nose
+  pr(8*S, 5*S,  2*S, 1*S, '#ffccaa');
+  // Mouth (sneer)
+  pr(6*S, 6*S,  6*S, 1*S, C2);
+  pr(7*S, 7*S,  4*S, 1*S, C2);
+
+  // Phase 2 extra glow lines on torso
+  if (phase===2) {
+    ctx.globalAlpha=0.4+Math.sin(Date.now()/120)*0.2;
+    pr(5*S,12*S,8*S,1*S,'#ff88ff');
+    pr(5*S,14*S,8*S,1*S,'#ff88ff');
+    ctx.globalAlpha=1;
+  }
+
+  ctx.shadowBlur=0;
+  ctx.restore();
+}
+
+// ─── PROJECTILES ──────────────────────────────────────────────────────────────
+const projectiles = [];
+function spawnKiBlast(x,y,dir)       { projectiles.push({x,y,vx:dir*8,  vy:0,type:'ki',       life:60,r:5}); }
+function spawnKamehameha(x,y,dir)    { projectiles.push({x,y,vx:dir*12, vy:0,type:'kame',     life:40,r:10}); }
+function spawnEnemyShot(x,y,dir)     { projectiles.push({x,y,vx:dir*4,  vy:0,type:'enemy',    life:80,r:4}); }
+function spawnDeathBeam(x,y,dir)     { projectiles.push({x,y,vx:dir*10, vy:0,type:'deathBeam',life:70,r:4}); }
+function spawnPowerBall(x,y,dir)     { projectiles.push({x,y,vx:dir*2.5,vy:-0.5,type:'powerBall',life:100,r:9}); }
+
+function updateProjectiles(enemies) {
+  for (let i=projectiles.length-1;i>=0;i--) {
+    const p=projectiles[i];
+    p.x+=p.vx; p.y+=p.vy; p.life--;
+    if(p.life<=0||p.x<-20||p.x>LOGICAL_W+20) { projectiles.splice(i,1); continue; }
+    if(p.type!=='enemy' && p.type!=='deathBeam' && p.type!=='powerBall') {
+      for(let j=enemies.length-1;j>=0;j--) {
+        const e=enemies[j];
+        const ew=getEnemyW(e.type), eh=getEnemyH(e.type);
+        const ey=e.y+(e.floatOffset||0);
+        if(p.x>e.x&&p.x<e.x+ew&&p.y>ey&&p.y<ey+eh) {
+          const dmg = p.type==='kame'?(game.doubleTimer>0?10:5):(game.doubleTimer>0?2:1);
+          hitEnemy(j, dmg, p.type==='kame'?'#44aaff':'#ffff44');
+          projectiles.splice(i,1);
+          break;
+        }
+      }
+    }
+  }
+}
+
+function drawProjectiles() {
+  for (const p of projectiles) {
+    ctx.save();
+    if(p.type==='ki') {
+      ctx.shadowColor='#ffff00'; ctx.shadowBlur=8;
+      ctx.fillStyle='#ffee00'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.4,0,Math.PI*2); ctx.fill();
+    } else if(p.type==='kame') {
+      ctx.shadowColor='#00aaff'; ctx.shadowBlur=16;
+      ctx.fillStyle='#0088ff'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#aaddff'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.5,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.25,0,Math.PI*2); ctx.fill();
+    } else if(p.type==='enemy') {
+      ctx.shadowColor='#ff4400'; ctx.shadowBlur=6;
+      ctx.fillStyle='#ff6600'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    } else if(p.type==='deathBeam') {
+      ctx.shadowColor='#ff00ff'; ctx.shadowBlur=10;
+      ctx.fillStyle='#cc00cc'; ctx.fillRect(p.x-8,p.y-2,16,4);
+      ctx.fillStyle='#ff88ff'; ctx.fillRect(p.x-6,p.y-1,12,2);
+      ctx.fillStyle='#ffffff'; ctx.fillRect(p.x-2,p.y-1,4,2);
+    } else if(p.type==='powerBall') {
+      ctx.shadowColor='#ff8800'; ctx.shadowBlur=14;
+      ctx.fillStyle='#ff8800'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#ffee00'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff';    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*.25,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ─── ENEMY HELPERS ────────────────────────────────────────────────────────────
+function getEnemyW(t) { return t==='friezaSoldier'?28:t==='frieza'?38:24; }
+function getEnemyH(t) { return t==='frieza'?54:32; }
+
+// ─── WAVE DEFINITIONS ─────────────────────────────────────────────────────────
+function getWaveDefs(difficulty) {
+  if(difficulty==='easy') return [
+    [{type:'saibaman',x:270,hp:1,maxHp:1},{type:'saibaman',x:320,hp:1,maxHp:1}],
+    [{type:'saibaman',x:250,hp:1,maxHp:1},{type:'chunin',x:295,hp:2,maxHp:2},{type:'saibaman',x:330,hp:1,maxHp:1}],
+    [{type:'chunin',x:255,hp:2,maxHp:2},{type:'friezaSoldier',x:305,hp:2,maxHp:2}],
+  ];
+  if(difficulty==='hard') return [
+    [{type:'saibaman',x:240,hp:3,maxHp:3},{type:'saibaman',x:280,hp:3,maxHp:3},{type:'saibaman',x:320,hp:3,maxHp:3},{type:'chunin',x:300,hp:4,maxHp:4}],
+    [{type:'friezaSoldier',x:230,hp:4,maxHp:4},{type:'soundNinja',x:270,hp:5,maxHp:5},{type:'friezaSoldier',x:315,hp:4,maxHp:4},{type:'chunin',x:250,hp:4,maxHp:4}],
+    [{type:'frieza',x:240,hp:30,maxHp:30}],
+  ];
+  // normal
+  return [
+    [{type:'saibaman',x:260,hp:2,maxHp:2},{type:'saibaman',x:310,hp:2,maxHp:2},{type:'chunin',x:290,hp:3,maxHp:3}],
+    [{type:'friezaSoldier',x:250,hp:3,maxHp:3},{type:'chunin',x:300,hp:3,maxHp:3},{type:'saibaman',x:200,hp:2,maxHp:2},{type:'saibaman',x:330,hp:2,maxHp:2}],
+    [{type:'soundNinja',x:240,hp:4,maxHp:4},{type:'friezaSoldier',x:290,hp:3,maxHp:3},{type:'soundNinja',x:330,hp:4,maxHp:4},{type:'chunin',x:270,hp:3,maxHp:3}],
+  ];
+}
+
+// ─── GAME STATE ───────────────────────────────────────────────────────────────
+const game = {
+  state: 'tutorial',
+  tutorialStep: 0,
+  difficulty: 'normal',
+  frame: 0,
+  score: 0,
+  combo: 0, comboTimer: 0,
+
+  // Richard
+  px:60, py:GROUND_Y, pvx:0, pvy:0,
+  pOnGround:true, pFacing:true,
+  pAnimFrame:0, pAnimTimer:0,
+  hp:5, maxHp:5,
+  ki:100, maxKi:100, kiRegen:0,
+
+  // Cachirula
+  cachCooldown:0, cachCooldownMax:1800,
+  cachActive:false, cachTimer:0,
+  bHoldTimer:0,
+  cachX:200, cachY:GROUND_Y, cachFrame:0,
+
+  // Double damage
+  doubleTimer:0,
+
+  // Kamehameha
+  kameCharging:false, kameCharge:0, kameDir:1,
+
+  // Waves
+  wave:0, enemies:[],
+  waveMsg:'', waveMsgTimer:0,
+
+  // Cooldowns
+  punchCooldown:0, kiCooldown:0, iframes:0,
+
+  // Difficulty multipliers (set in startGame)
+  enemySpeedMult:1, enemyShootMult:1, enemyMeleeDmg:1,
+
+  // Boss
+  bossIntroTimer:0,
+  friezaPhaseFlash:0,
+};
+
+function initWave(n) {
+  const defs = getWaveDefs(game.difficulty);
+  game.enemies = defs[n].map(e=>({
+    ...e, y:GROUND_Y, vx:0, vy:0, onGround:true,
+    frame:0, animTimer:0,
+    shootTimer:Math.floor(Math.random()*60)+40,
+    shootTimer2:Math.floor(Math.random()*90)+80, // power ball for Frieza phase 2
+    staggerTimer:0, floatOffset:0, floatSeed:Math.random()*Math.PI*2,
+    phase:1, phaseChanged:false,
+  }));
+
+  if(n===2 && game.difficulty==='hard') {
+    game.waveMsg='¡APARECE\nFRIEZA!';
+    game.waveMsgTimer = 180;
+    game.bossIntroTimer = 180;
+  } else {
+    game.waveMsg = n===0?'¡OLA 1!':n===1?'¡OLA 2!':'¡OLA FINAL!';
+    game.waveMsgTimer=120;
+    game.bossIntroTimer=0;
+  }
+  game.combo=0;
+}
+
+function startGame() {
+  game.state='playing';
+  game.wave=0; game.score=0; game.frame=0;
+  game.combo=0; game.comboTimer=0;
+  game.doubleTimer=0; game.iframes=0;
+  game.kameCharging=false; game.kameCharge=0;
+  game.cachCooldown=0; game.cachActive=false; game.bHoldTimer=0;
+  game.friezaPhaseFlash=0;
+
+  const D=game.difficulty;
+  if(D==='easy')  { game.hp=game.maxHp=7; game.enemySpeedMult=0.6; game.enemyShootMult=1.6; game.enemyMeleeDmg=1; }
+  if(D==='normal'){ game.hp=game.maxHp=5; game.enemySpeedMult=1.0; game.enemyShootMult=1.0; game.enemyMeleeDmg=1; }
+  if(D==='hard')  { game.hp=game.maxHp=4; game.enemySpeedMult=1.3; game.enemyShootMult=0.75; game.enemyMeleeDmg=2; }
+
+  game.ki=100; game.px=60; game.py=GROUND_Y; game.pvx=0; game.pvy=0;
+  particles.length=0; projectiles.length=0; floaters.length=0;
+  initWave(0);
+}
+
+// ─── HIT ENEMY ────────────────────────────────────────────────────────────────
+function hitEnemy(j, dmg, color) {
+  const e=game.enemies[j];
+  const ew=getEnemyW(e.type);
+  e.hp-=dmg;
+  e.staggerTimer = e.type==='frieza' ? 5 : 15;
+  game.score+=dmg*10; game.combo++;
+  game.comboTimer=90;
+  spawnFloater(e.x+ew/2, e.y+(e.floatOffset||0)-5, '-'+dmg, color);
+  spawnParticles(e.x+ew/2, e.y+(e.floatOffset||0)+10, color, 8);
+  triggerShake(4,2);
+
+  // Frieza phase 2 transition
+  if(e.type==='frieza' && e.hp<=15 && e.phase===1) {
+    e.phase=2; game.friezaPhaseFlash=60;
+    spawnParticles(e.x+ew/2, e.y, '#ff00ff', 40, 7, 70);
+    spawnFloater(e.x+ew/2, e.y-20, '¡FASE 2!', '#ff44ff');
+    triggerShake(20, 6);
+  }
+
+  if(e.hp<=0) {
+    const eh=getEnemyH(e.type);
+    spawnParticles(e.x+ew/2, e.y+(e.floatOffset||0)+eh/2, e.type==='frieza'?'#ff00ff':'#ff8800', e.type==='frieza'?60:20, 6, 70);
+    spawnFloater(e.x+ew/2, e.y+(e.floatOffset||0), e.type==='frieza'?'¡VICTORIA!':'VENCIDO!', e.type==='frieza'?'#ff44ff':'#ff8800');
+    game.score+=e.type==='frieza'?1000:100;
+    if(e.type==='frieza') triggerShake(30,8);
+    game.enemies.splice(j,1);
+  }
+}
+
+// ─── TUTORIAL ─────────────────────────────────────────────────────────────────
+const TUTORIAL_STEPS=[
+  {title:'¡FELIZ DÍA\nDEL PADRE!', body:'¡Bienvenido, Richard!\nEres el guerrero\nmás poderoso\nde la familia.'},
+  {title:'MOVIMIENTO',    body:'Usa ◀ ▶ para moverte.\nUsa ▲ para saltar.'},
+  {title:'PUÑETAZO [A]',  body:'Botón A: Golpe rápido\ncuerpo a cuerpo.'},
+  {title:'KI BLAST [Y]',  body:'Botón Y: Dispara Ki.\nCuesta 25 KI.'},
+  {title:'KAMEHAMEHA [X]',body:'Mantén X para cargar.\nSuelta para disparar.\nCuesta 45 KI, 5 daño.'},
+  {title:'CACHIRULA [B]', body:'Mantén B 2 segundos\npara invocar a tu\nCachirula. ¡Poderes!'},
+  {title:'PODER CACHIRULA',body:'Elimina enemigos,\nte cura y da\ndoble daño 5s.'},
+  {title:'¡A LUCHAR!',    body:'3 olas de enemigos.\n¡Demuestra que eres\nel mejor papá!'},
+];
+
+function drawTutorial() {
+  ctx.fillStyle='#00000099'; ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+  const pw=300,ph=160,px2=(LOGICAL_W-pw)/2,py2=(LOGICAL_H-ph)/2-10;
+  ctx.fillStyle='#0a0a2a'; ctx.strokeStyle='#4488ff'; ctx.lineWidth=3;
+  ctx.fillRect(px2,py2,pw,ph); ctx.strokeRect(px2,py2,pw,ph);
+  const step=TUTORIAL_STEPS[game.tutorialStep];
+  ctx.textAlign='center';
+  ctx.font='8px "Press Start 2P"'; ctx.fillStyle='#ffee00';
+  step.title.split('\n').forEach((l,i)=>ctx.fillText(l,LOGICAL_W/2,py2+18+i*14));
+  ctx.font='6px "Press Start 2P"'; ctx.fillStyle='#ccddff';
+  step.body.split('\n').forEach((l,i)=>ctx.fillText(l,LOGICAL_W/2,py2+52+i*14));
+  // Step dots
+  for(let i=0;i<TUTORIAL_STEPS.length;i++){
+    ctx.fillStyle=i===game.tutorialStep?'#ffee00':'#335';
+    ctx.fillRect(px2+10+i*14,py2+ph-16,10,6);
+  }
+  // Advance button
+  const bw=130,bh=22,bx=(LOGICAL_W-bw)/2,by=py2+ph-30;
+  ctx.fillStyle='#22aa22'; ctx.strokeStyle='#88ff88'; ctx.lineWidth=2;
+  ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh);
+  ctx.font='7px "Press Start 2P"'; ctx.fillStyle='#fff';
+  ctx.fillText(game.tutorialStep===TUTORIAL_STEPS.length-1?'¡JUGAR!':'SIGUIENTE ▶',LOGICAL_W/2,by+15);
+}
+
+// ─── DIFFICULTY SELECT ────────────────────────────────────────────────────────
+const DIFF_BTNS=[
+  {label:'FÁCIL',   diff:'easy',   y:55,  color:'#0a2a0a',border:'#44cc44',sub1:'7 HP  ·  Enemigos débiles',       sub2:'Para disfrutar la historia'},
+  {label:'NORMAL',  diff:'normal', y:110, color:'#2a2a0a',border:'#cccc44',sub1:'5 HP  ·  Desafío estándar',        sub2:'La experiencia completa'},
+  {label:'DIFÍCIL', diff:'hard',   y:165, color:'#2a0a0a',border:'#cc4444',sub1:'4 HP  ·  Enemigos poderosos',      sub2:'¡FRIEZA aparece en ola 3!'},
+];
+const DIFF_BTN_W=260,DIFF_BTN_H=42;
+
+function drawDiffSelect() {
+  drawBackground(); drawGround();
+  ctx.fillStyle='#000000aa'; ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+  ctx.textAlign='center';
+  ctx.font='8px "Press Start 2P"'; ctx.fillStyle='#ffee00';
+  ctx.fillText('SELECCIONA',LOGICAL_W/2,22);
+  ctx.fillText('DIFICULTAD',LOGICAL_W/2,35);
+
+  for(const btn of DIFF_BTNS){
+    const bx=(LOGICAL_W-DIFF_BTN_W)/2;
+    ctx.fillStyle=btn.color; ctx.strokeStyle=btn.border; ctx.lineWidth=2;
+    ctx.fillRect(bx,btn.y,DIFF_BTN_W,DIFF_BTN_H);
+    ctx.strokeRect(bx,btn.y,DIFF_BTN_W,DIFF_BTN_H);
+    ctx.font='8px "Press Start 2P"'; ctx.fillStyle=btn.border;
+    ctx.fillText(btn.label,LOGICAL_W/2,btn.y+15);
+    ctx.font='5px "Press Start 2P"'; ctx.fillStyle='#cccccc';
+    ctx.fillText(btn.sub1,LOGICAL_W/2,btn.y+26);
+    ctx.fillStyle='#aaaaaa';
+    ctx.fillText(btn.sub2,LOGICAL_W/2,btn.y+37);
+  }
+  // Frieza preview hint on hard
+  ctx.font='5px "Press Start 2P"'; ctx.fillStyle='#ff44ff';
+  ctx.fillText('⚠ ¡FRIEZA JEFE FINAL!', LOGICAL_W/2, 217);
+}
+
+// ─── ENEMY LOGIC ──────────────────────────────────────────────────────────────
+function updateEnemies() {
+  const es=game.enemies;
+  const spd=game.enemySpeedMult, sht=game.enemyShootMult, mdmg=game.enemyMeleeDmg;
+
+  for(let i=0;i<es.length;i++){
+    const e=es[i];
+    e.animTimer++;
+    if(e.animTimer>=12){ e.animTimer=0; e.frame=(e.frame+1)%2; }
+
+    // Float for Frieza
+    if(e.type==='frieza'){
+      e.floatOffset=Math.sin(game.frame*0.05+e.floatSeed)*4;
+    }
+
+    if(e.staggerTimer>0){ e.staggerTimer--; continue; }
+
+    const ew=getEnemyW(e.type);
+    const isRanged=e.type==='friezaSoldier'||e.type==='soundNinja'||e.type==='frieza';
+    const px=game.px+16, ex=e.x+ew/2;
+    const dist=Math.abs(ex-px);
+
+    if(e.type==='frieza') {
+      // Frieza hover logic
+      const preferred=e.phase===2?100:140;
+      const moveSpd=(e.phase===2?1.4:1.0)*spd;
+      if(dist<preferred-20)      e.x+=ex<px?-moveSpd:moveSpd;
+      else if(dist>preferred+30) e.x+=ex<px? moveSpd:-moveSpd;
+      e.x=Math.max(10,Math.min(LOGICAL_W-ew-10,e.x));
+
+      // Death Beam
+      const cooldown=Math.floor((e.phase===2?30:50)*sht);
+      e.shootTimer--;
+      if(e.shootTimer<=0){
+        e.shootTimer=cooldown+Math.floor(Math.random()*20);
+        const dir=ex<px?1:-1;
+        spawnDeathBeam(ex,e.y+(e.floatOffset||0)+10,dir);
+        spawnParticles(ex,e.y+(e.floatOffset||0)+10,'#ff00ff',6,3,18);
+      }
+      // Power Ball (phase 2 only)
+      if(e.phase===2){
+        e.shootTimer2--;
+        if(e.shootTimer2<=0){
+          e.shootTimer2=Math.floor(90*sht)+Math.floor(Math.random()*40);
+          const dir=ex<px?1:-1;
+          spawnPowerBall(ex,e.y+(e.floatOffset||0)+14,dir);
+          spawnParticles(ex,e.y+(e.floatOffset||0)+14,'#ff8800',10,4,25);
+          spawnFloater(e.x+ew/2,e.y+(e.floatOffset||0)-10,'SUPERNOVA!','#ff8800');
+        }
+      }
+    } else if(isRanged) {
+      const preferred=120;
+      const moveSpd=0.8*spd;
+      if(dist<preferred-20)      e.x+=ex<px?-moveSpd:moveSpd;
+      else if(dist>preferred+30) e.x+=ex<px? moveSpd:-moveSpd;
+      e.x=Math.max(0,Math.min(LOGICAL_W-ew,e.x));
+      e.shootTimer--;
+      if(e.shootTimer<=0){
+        e.shootTimer=Math.floor((Math.random()*60+60)*sht);
+        const dir=ex<px?1:-1;
+        spawnEnemyShot(ex,e.y+10,dir);
+        spawnParticles(ex,e.y+10,'#ff6600',4,2,15);
+      }
+    } else {
+      // Melee
+      const moveSpd=0.8*spd;
+      if(dist>24) e.x+=ex<px?moveSpd:-moveSpd;
+      else {
+        e.shootTimer--;
+        if(e.shootTimer<=0){
+          e.shootTimer=Math.floor((Math.random()*40+40)*sht);
+          if(game.iframes<=0){
+            game.hp=Math.max(0,game.hp-mdmg);
+            game.iframes=60;
+            triggerShake(8,4);
+            spawnFloater(game.px+16,game.py-10,'-'+mdmg+'HP','#ff4444');
+            spawnParticles(game.px+16,game.py+10,'#ff0000',12,3,30);
+            if(game.hp<=0) game.state='dead';
+          }
+        }
+      }
+      e.x=Math.max(0,Math.min(LOGICAL_W-ew,e.x));
+    }
+  }
+}
+
+function checkEnemyShotHits() {
+  if(game.iframes>0) return;
+  for(let i=projectiles.length-1;i>=0;i--){
+    const p=projectiles[i];
+    if(p.type!=='enemy'&&p.type!=='deathBeam'&&p.type!=='powerBall') continue;
+    if(p.x>game.px&&p.x<game.px+32&&p.y>game.py&&p.y<game.py+40){
+      const dmg=p.type==='powerBall'?2:1;
+      game.hp=Math.max(0,game.hp-dmg);
+      game.iframes=60;
+      triggerShake(8,4);
+      spawnFloater(game.px+16,game.py-10,'-'+dmg+'HP','#ff4444');
+      spawnParticles(game.px+16,game.py+10,p.type==='deathBeam'?'#ff00ff':'#ff0000',12);
+      projectiles.splice(i,1);
+      if(game.hp<=0) game.state='dead';
+      return;
+    }
+  }
+}
+
+// ─── PUNCH ────────────────────────────────────────────────────────────────────
+function tryPunch() {
+  if(game.punchCooldown>0) return;
+  game.punchCooldown=25;
+  const px=game.px+16+(game.pFacing?16:-16), py2=game.py+10;
+  let hit=false;
+  for(let i=game.enemies.length-1;i>=0;i--){
+    const e=game.enemies[i];
+    const ew=getEnemyW(e.type);
+    if(Math.abs(px-(e.x+ew/2))<ew/2+16&&Math.abs(py2-(e.y+16))<24){
+      const dmg=game.doubleTimer>0?2:1;
+      hitEnemy(i,dmg,'#ff8800');
+      hit=true; break;
+    }
+  }
+  if(!hit) spawnParticles(px,py2,'#ffaa00',5);
+}
+
+// ─── HUD ──────────────────────────────────────────────────────────────────────
+function drawHUD() {
+  const pad=6;
+  // Hearts
+  for(let i=0;i<game.maxHp;i++){
+    const hx=pad+i*14, hy=pad;
+    ctx.fillStyle=i<game.hp?'#ff2244':'#441122';
+    [[0,1,0,1,0],[1,1,1,1,1],[1,1,1,1,1],[0,1,1,1,0],[0,0,1,0,0]].forEach((row,ry)=>
+      row.forEach((p2,rx)=>{ if(p2) ctx.fillRect(hx+rx*2,hy+ry*2,2,2); }));
+  }
+  // KI bar
+  const kiX=pad,kiY=pad+14;
+  ctx.fillStyle='#222'; ctx.fillRect(kiX,kiY,80,7);
+  ctx.fillStyle='#ffee00'; ctx.fillRect(kiX,kiY,Math.round(80*(game.ki/game.maxKi)),7);
+  ctx.strokeStyle='#888'; ctx.lineWidth=1; ctx.strokeRect(kiX,kiY,80,7);
+  ctx.font='5px "Press Start 2P"'; ctx.fillStyle='#fff'; ctx.textAlign='left';
+  ctx.fillText('KI',kiX+82,kiY+6);
+  // Cachirula cooldown
+  const cX=pad,cY=kiY+10;
+  ctx.fillStyle='#222'; ctx.fillRect(cX,cY,80,7);
+  const cf=game.cachCooldown===0?80:Math.round(80*(1-game.cachCooldown/game.cachCooldownMax));
+  ctx.fillStyle=game.cachCooldown===0?'#ff88cc':'#884466';
+  ctx.fillRect(cX,cY,cf,7);
+  ctx.strokeStyle='#888'; ctx.lineWidth=1; ctx.strokeRect(cX,cY,80,7);
+  ctx.fillStyle='#fff'; ctx.font='5px "Press Start 2P"';
+  ctx.fillText(game.cachCooldown===0?'LISTA':'COOL',cX+82,cY+6);
+
+  // Score + wave
+  ctx.textAlign='right';
+  ctx.font='6px "Press Start 2P"'; ctx.fillStyle='#ffee00';
+  ctx.fillText('SCORE:'+game.score,LOGICAL_W-pad,pad+8);
+  ctx.fillStyle='#aaccff';
+  ctx.fillText('OLA '+(game.wave+1)+'/3',LOGICAL_W-pad,pad+18);
+
+  // Difficulty badge
+  const dcolor={'easy':'#44cc44','normal':'#cccc44','hard':'#cc4444'}[game.difficulty];
+  ctx.fillStyle=dcolor; ctx.font='5px "Press Start 2P"';
+  ctx.fillText({easy:'FÁCIL',normal:'NORMAL',hard:'DIFÍCIL'}[game.difficulty],LOGICAL_W-pad,pad+28);
+
+  // Combo
+  if(game.combo>1&&game.comboTimer>0){
+    ctx.textAlign='center'; ctx.font='7px "Press Start 2P"'; ctx.fillStyle='#ff8800';
+    ctx.fillText('COMBO x'+game.combo+'!',LOGICAL_W/2,25);
+  }
+  // Double damage
+  if(game.doubleTimer>0){
+    ctx.textAlign='right'; ctx.fillStyle='#ffaa00'; ctx.font='5px "Press Start 2P"';
+    ctx.fillText('x2 DMG!',LOGICAL_W-pad,pad+38);
+  }
+  // B charge
+  if(game.bHoldTimer>0&&game.cachCooldown===0){
+    const pct=Math.min(1,game.bHoldTimer/120);
+    ctx.textAlign='center'; ctx.fillStyle='#000'; ctx.fillRect(LOGICAL_W/2-40,LOGICAL_H-50,80,8);
+    ctx.fillStyle='#ffaa00'; ctx.fillRect(LOGICAL_W/2-40,LOGICAL_H-50,Math.round(80*pct),8);
+    ctx.strokeStyle='#ffdd88'; ctx.lineWidth=1; ctx.strokeRect(LOGICAL_W/2-40,LOGICAL_H-50,80,8);
+    ctx.fillStyle='#fff'; ctx.font='5px "Press Start 2P"';
+    ctx.fillText('¡CACHIRULA!',LOGICAL_W/2,LOGICAL_H-55);
+  }
+  // Kame charge
+  if(game.kameCharging&&game.kameCharge>0){
+    ctx.textAlign='center';
+    ctx.shadowColor='#00aaff'; ctx.shadowBlur=10+Math.sin(Date.now()/100)*5;
+    ctx.fillStyle='#00aaff'; ctx.font='7px "Press Start 2P"';
+    ctx.fillText('KAMEHAMEHA...',LOGICAL_W/2,LOGICAL_H-62);
+    ctx.shadowBlur=0;
+  }
+
+  // Boss HP bar (Frieza)
+  const frieza=game.enemies.find(e=>e.type==='frieza');
+  if(frieza){
+    const bw=200,bh=12,bx=(LOGICAL_W-bw)/2,by=4;
+    ctx.fillStyle='#111'; ctx.fillRect(bx,by,bw,bh);
+    const pct=Math.max(0,frieza.hp/frieza.maxHp);
+    const col=frieza.phase===2?(game.friezaPhaseFlash>0&&Math.floor(game.friezaPhaseFlash/4)%2===0?'#ffffff':'#ff44ff'):'#cc00cc';
+    ctx.fillStyle=col; ctx.fillRect(bx,by,Math.round(bw*pct),bh);
+    // Phase 2 marker at 50%
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(bx+bw/2,by); ctx.lineTo(bx+bw/2,by+bh); ctx.stroke();
+    ctx.strokeStyle='#cc00cc'; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+    ctx.textAlign='center'; ctx.font='6px "Press Start 2P"';
+    ctx.fillStyle='#fff'; ctx.fillText('FRIEZA',LOGICAL_W/2,by+bh+8);
+    if(frieza.phase===2){
+      ctx.fillStyle='#ff44ff'; ctx.font='5px "Press Start 2P"';
+      ctx.fillText('FASE 2',LOGICAL_W/2,by+bh+16);
+    }
+    if(game.friezaPhaseFlash>0) game.friezaPhaseFlash--;
+  }
+
+  // Wave message
+  if(game.waveMsgTimer>0){
+    // Don't show text during boss intro
+    if(!(game.bossIntroTimer>0)){
+      ctx.globalAlpha=Math.min(1,game.waveMsgTimer/30);
+      ctx.textAlign='center'; ctx.font='14px "Press Start 2P"'; ctx.fillStyle='#ffee00';
+      game.waveMsg.split('\n').forEach((l,i)=>ctx.fillText(l,LOGICAL_W/2,LOGICAL_H/2+i*18));
+      ctx.globalAlpha=1;
+    }
+    game.waveMsgTimer--;
+  }
+
+  // Boss intro overlay
+  if(game.bossIntroTimer>0){
+    const a=Math.min(1,game.bossIntroTimer>150?(game.bossIntroTimer-150)/30:game.bossIntroTimer/60);
+    ctx.globalAlpha=a*0.85;
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+    ctx.globalAlpha=a;
+    ctx.textAlign='center';
+    ctx.shadowColor='#ff00ff'; ctx.shadowBlur=20;
+    ctx.fillStyle='#ff44ff'; ctx.font='11px "Press Start 2P"';
+    ctx.fillText('¡APARECE',LOGICAL_W/2,LOGICAL_H/2-20);
+    ctx.fillText('FRIEZA!',LOGICAL_W/2,LOGICAL_H/2-4);
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#ffffff'; ctx.font='6px "Press Start 2P"';
+    ctx.fillText('PODER: ∞',LOGICAL_W/2,LOGICAL_H/2+16);
+    ctx.fillStyle='#ffee00'; ctx.font='5px "Press Start 2P"';
+    ctx.fillText('¡Usa Cachirula si es necesario!',LOGICAL_W/2,LOGICAL_H/2+32);
+    ctx.globalAlpha=1; ctx.shadowBlur=0;
+    game.bossIntroTimer--;
+  }
+}
+
+// ─── WIN SCREEN ───────────────────────────────────────────────────────────────
+function drawWinScreen() {
+  drawBackground(); drawGround();
+  // Burst stars
+  ctx.fillStyle='#ffee00';
+  for(let i=0;i<20;i++){
+    const a=i*(Math.PI*2/20)+game.frame*0.02;
+    const r=60+Math.sin(game.frame*0.05+i)*20;
+    ctx.fillRect(LOGICAL_W/2+Math.cos(a)*r,LOGICAL_H/2-20+Math.sin(a)*r*.5,3,3);
+  }
+  drawRichard(LOGICAL_W/2-50,GROUND_Y,true,0,false);
+  drawCachirula(LOGICAL_W/2+10,GROUND_Y,0);
+  const pw=310,ph=150,wx=(LOGICAL_W-pw)/2,wy=14;
+  ctx.fillStyle='#0a0a2a'; ctx.strokeStyle='#ffee00'; ctx.lineWidth=3;
+  ctx.fillRect(wx,wy,pw,ph); ctx.strokeRect(wx,wy,pw,ph);
+  ctx.textAlign='center';
+  ctx.font='8px "Press Start 2P"'; ctx.fillStyle='#ffee00';
+  ctx.fillText('¡LO LOGRASTE,',LOGICAL_W/2,wy+18);
+  ctx.fillText('RICHARD!',LOGICAL_W/2,wy+32);
+  const bonusMsg = game.difficulty==='hard'?'¡Derrotaste a FRIEZA!':'¡Eres el campeón!';
+  ctx.font='5px "Press Start 2P"'; ctx.fillStyle=game.difficulty==='hard'?'#ff44ff':'#ffaacc';
+  ctx.fillText(bonusMsg,LOGICAL_W/2,wy+48);
+  ctx.fillStyle='#ffaacc';
+  ctx.fillText('Eres el mejor papá del mundo.',LOGICAL_W/2,wy+62);
+  ctx.fillText('Gracias por protegernos.',LOGICAL_W/2,wy+74);
+  ctx.fillStyle='#aaddff'; ctx.fillText('CON AMOR,',LOGICAL_W/2,wy+88);
+  ctx.fillStyle='#ff88cc'; ctx.fillText('TU CACHIRULA ♥',LOGICAL_W/2,wy+102);
+  ctx.fillStyle='#44aa44'; ctx.fillText('SCORE: '+game.score,LOGICAL_W/2,wy+118);
+  const diff={'easy':'FÁCIL','normal':'NORMAL','hard':'DIFÍCIL'}[game.difficulty];
+  ctx.fillStyle={'easy':'#44cc44','normal':'#cccc44','hard':'#cc4444'}[game.difficulty];
+  ctx.fillText('['+diff+']',LOGICAL_W/2,wy+132);
+  // Flash restart
+  ctx.font='5px "Press Start 2P"';
+  ctx.fillStyle=Math.floor(game.frame/20)%2===0?'#ffee00':'#aa8800';
+  ctx.fillText('TOCA PARA VOLVER A JUGAR',LOGICAL_W/2,LOGICAL_H-6);
+}
+
+// ─── DEAD SCREEN ──────────────────────────────────────────────────────────────
+function drawDeadScreen() {
+  drawBackground(); drawGround();
+  ctx.fillStyle='#00000088'; ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+  ctx.textAlign='center';
+  ctx.font='12px "Press Start 2P"'; ctx.fillStyle='#ff2244';
+  ctx.fillText('¡DERROTA!',LOGICAL_W/2,LOGICAL_H/2-20);
+  ctx.font='6px "Press Start 2P"'; ctx.fillStyle='#aaaaaa';
+  ctx.fillText('SCORE: '+game.score,LOGICAL_W/2,LOGICAL_H/2+4);
+  ctx.fillStyle=Math.floor(game.frame/20)%2===0?'#fff':'#888';
+  ctx.fillText('TOCA PARA REINTENTAR',LOGICAL_W/2,LOGICAL_H/2+22);
+}
+
+// ─── BACKGROUND + GROUND ──────────────────────────────────────────────────────
+function drawBackground() {
+  const grad=ctx.createLinearGradient(0,0,0,GROUND_Y);
+  grad.addColorStop(0,'#08081a'); grad.addColorStop(1,'#0a1030');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,LOGICAL_W,GROUND_Y);
+  // Moon
+  ctx.fillStyle='#fffbe0'; ctx.beginPath(); ctx.arc(LOGICAL_W-40,30,16,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#e0d090'; ctx.beginPath(); ctx.arc(LOGICAL_W-34,26,6,0,Math.PI*2); ctx.fill();
+  // Stars
+  const t=game.frame*.02;
+  for(const s of stars){
+    ctx.globalAlpha=s.bright?.6+Math.sin(t+s.x)*.4:.8;
+    ctx.fillStyle='#ffffff'; ctx.fillRect(Math.round(s.x),Math.round(s.y),s.r,s.r);
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawGround() {
+  ctx.fillStyle='#1a3a1a'; ctx.fillRect(0,GROUND_Y,LOGICAL_W,LOGICAL_H-GROUND_Y);
+  ctx.fillStyle='#2a5a2a'; ctx.fillRect(0,GROUND_Y,LOGICAL_W,3);
+  ctx.fillStyle='#3a7a3a';
+  for(let gx=8;gx<LOGICAL_W;gx+=24){ ctx.fillRect(gx,GROUND_Y-2,6,3); ctx.fillRect(gx+3,GROUND_Y-4,3,3); }
+}
+
+// ─── CANVAS INPUT HANDLER ─────────────────────────────────────────────────────
+function handleCanvasInput(lx,ly) {
+  if(game.state==='tutorial'){
+    const ph=160,py2=(LOGICAL_H-ph)/2-10,bw=130,bh=22,bx=(LOGICAL_W-bw)/2,by=py2+ph-30;
+    if(lx>=bx&&lx<=bx+bw&&ly>=by&&ly<=by+bh){
+      if(game.tutorialStep<TUTORIAL_STEPS.length-1) game.tutorialStep++;
+      else game.state='diffSelect';
+    }
+  } else if(game.state==='diffSelect'){
+    for(const btn of DIFF_BTNS){
+      const bx=(LOGICAL_W-DIFF_BTN_W)/2;
+      if(lx>=bx&&lx<=bx+DIFF_BTN_W&&ly>=btn.y&&ly<=btn.y+DIFF_BTN_H){
+        game.difficulty=btn.diff;
+        startGame();
+        return;
+      }
+    }
+  } else if(game.state==='win'||game.state==='dead'){
+    game.state='tutorial'; game.tutorialStep=0;
+  }
+}
+
+canvas.addEventListener('click',e=>{
+  const {lx,ly}=canvasCoords(e.clientX,e.clientY);
+  handleCanvasInput(lx,ly);
+});
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const {lx,ly}=canvasCoords(t.clientX,t.clientY);
+  handleCanvasInput(lx,ly);
+},{passive:false});
+
+// ─── MAIN UPDATE ──────────────────────────────────────────────────────────────
+function update() {
+  if(game.state!=='playing') return;
+  game.frame++;
+  if(game.punchCooldown>0) game.punchCooldown--;
+  if(game.kiCooldown>0) game.kiCooldown--;
+  if(game.iframes>0) game.iframes--;
+  if(game.doubleTimer>0) game.doubleTimer--;
+  if(game.cachCooldown>0) game.cachCooldown--;
+  if(game.comboTimer>0){ game.comboTimer--; if(game.comboTimer===0) game.combo=0; }
+
+  // KI regen
+  game.kiRegen++;
+  if(game.kiRegen>=30){ game.kiRegen=0; game.ki=Math.min(game.maxKi,game.ki+5); }
+
+  // Pause input during boss intro
+  if(game.bossIntroTimer>0) {
+    updateParticles(); updateFloaters();
+    return;
+  }
+
+  // Movement
+  const speed=2.5;
+  if(isHeld('left'))       { game.pvx=-speed; game.pFacing=false; }
+  else if(isHeld('right')) { game.pvx= speed; game.pFacing=true;  }
+  else                       game.pvx=0;
+
+  if(isHeld('up')&&game.pOnGround){ game.pvy=JUMP_VEL; game.pOnGround=false; }
+  game.pvy+=GRAVITY;
+  game.px+=game.pvx; game.py+=game.pvy;
+  if(game.py>=GROUND_Y){ game.py=GROUND_Y; game.pvy=0; game.pOnGround=true; }
+  game.px=Math.max(0,Math.min(LOGICAL_W-32,game.px));
+
+  game.pAnimTimer++;
+  if(game.pAnimTimer>=8){ game.pAnimTimer=0; game.pAnimFrame=(game.pAnimFrame+1)%4; }
+
+  // A — Punch
+  if(isHeld('a')&&game.punchCooldown===0) tryPunch();
+
+  // Y — Ki Blast
+  if(isHeld('y')&&game.kiCooldown===0&&game.ki>=25){
+    game.ki-=25; game.kiCooldown=20;
+    const dir=game.pFacing?1:-1;
+    spawnKiBlast(game.px+(dir>0?32:0),game.py+14,dir);
+    spawnParticles(game.px+16,game.py+14,'#ffee00',8,3,20);
+  }
+
+  // X — Kamehameha
+  if(isHeld('x')){
+    game.kameCharging=true; game.kameDir=game.pFacing?1:-1;
+    game.kameCharge=Math.min(game.kameCharge+1,60);
+    if(game.kameCharge%5===0) spawnParticles(game.px+16,game.py+14,'#00aaff',3,1.5,20);
+  } else if(game.kameCharging){
+    if(game.kameCharge>=20&&game.ki>=45){
+      game.ki-=45;
+      spawnKamehameha(game.px+(game.kameDir>0?32:0),game.py+14,game.kameDir);
+      spawnParticles(game.px+16,game.py+14,'#00aaff',20,5,35);
+      spawnParticles(game.px+16,game.py+14,'#ffffff',10,3,25);
+    }
+    game.kameCharging=false; game.kameCharge=0;
+  }
+
+  // B — Cachirula summon
+  if(isHeld('b')&&game.cachCooldown===0){
+    game.bHoldTimer++;
+    if(game.bHoldTimer>=120){
+      game.bHoldTimer=0; game.cachCooldown=game.cachCooldownMax;
+      game.cachActive=true; game.cachTimer=180;
+      game.cachX=game.px+40; game.cachY=GROUND_Y;
+      for(const e of game.enemies){
+        const ew=getEnemyW(e.type);
+        spawnParticles(e.x+ew/2,e.y+16,'#ff88cc',40,8,80);
+        spawnFloater(e.x+ew/2,e.y,'¡AMOR!','#ff88cc');
+        game.score+=e.type==='frieza'?500:200;
+      }
+      game.enemies.length=0;
+      game.hp=Math.min(game.maxHp,game.hp+3);
+      spawnFloater(game.px+16,game.py-10,'+3HP','#ff88cc');
+      game.ki=game.maxKi; game.doubleTimer=300; game.combo=0;
+      triggerShake(20,6);
+    }
+  } else { game.bHoldTimer=0; }
+
+  if(game.cachActive){
+    game.cachTimer--;
+    if(game.cachTimer<=0) game.cachActive=false;
+    game.cachFrame=Math.floor(game.frame/8)%2;
+    if(game.frame%5===0) spawnParticles(game.cachX+12,game.cachY+8,'#ff88cc',4,2,25);
+  }
+
+  updateEnemies();
+  updateProjectiles(game.enemies);
+  checkEnemyShotHits();
+  updateParticles();
+  updateFloaters();
+
+  // Wave clear check
+  if(game.enemies.length===0&&game.waveMsgTimer===0&&game.bossIntroTimer===0){
+    if(game.wave<2){ game.wave++; initWave(game.wave); }
+    else game.state='win';
+  }
+}
+
+// ─── MAIN DRAW ────────────────────────────────────────────────────────────────
+function draw() {
+  const {sx,sy}=getShakeOffset();
+  ctx.save(); ctx.translate(Math.round(sx),Math.round(sy));
+
+  if(game.state==='tutorial'){
+    drawBackground(); drawGround();
+    drawRichard(LOGICAL_W/2-16,GROUND_Y,true,0,false);
+    drawTutorial();
+  } else if(game.state==='diffSelect'){
+    drawDiffSelect();
+  } else if(game.state==='win'){
+    drawWinScreen(); game.frame++;
+  } else if(game.state==='dead'){
+    drawDeadScreen(); game.frame++;
+  } else {
+    // Playing
+    drawBackground(); drawGround();
+
+    if(game.cachActive) drawCachirula(Math.round(game.cachX),Math.round(game.cachY),game.cachFrame);
+
+    for(const e of game.enemies){
+      const fl=e.x>game.px;
+      const ey=Math.round(e.y+(e.floatOffset||0));
+      const ex=Math.round(e.x);
+      if(e.type==='saibaman')      drawSaibaman(ex,ey,e.frame,fl);
+      else if(e.type==='chunin')   drawChunin(ex,ey,e.frame,fl);
+      else if(e.type==='friezaSoldier') drawFriezaSoldier(ex,ey,e.frame,fl);
+      else if(e.type==='soundNinja')    drawSoundNinja(ex,ey,e.frame,fl);
+      else if(e.type==='frieza')        drawFrieza(ex,ey,e.phase,e.frame,fl);
+
+      // HP bar (skip for Frieza, it uses the boss bar)
+      if(e.type!=='frieza'){
+        const ew=getEnemyW(e.type);
+        ctx.fillStyle='#111'; ctx.fillRect(e.x,ey-8,ew,4);
+        ctx.fillStyle='#ff2244'; ctx.fillRect(e.x,ey-8,Math.round(ew*(e.hp/e.maxHp)),4);
+        ctx.strokeStyle='#555'; ctx.lineWidth=1; ctx.strokeRect(e.x,ey-8,ew,4);
+      }
+    }
+
+    // Richard (flash on iframes)
+    if(game.iframes<=0||Math.floor(game.iframes/5)%2===0){
+      drawRichard(Math.round(game.px),Math.round(game.py),game.pFacing,
+                  game.pvx!==0?game.pAnimFrame:0, game.doubleTimer>0);
+    }
+
+    // Punch flash
+    if(game.punchCooldown>15){
+      const dir=game.pFacing?1:-1;
+      ctx.save();
+      ctx.shadowColor='#ff8800'; ctx.shadowBlur=8;
+      ctx.fillStyle='#ffaa00';
+      ctx.beginPath(); ctx.arc(game.px+16+dir*20,game.py+12,6,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    drawProjectiles();
+    drawParticles();
+    drawFloaters();
+    drawHUD();
+  }
+  ctx.restore();
+}
+
+// ─── LOOP ─────────────────────────────────────────────────────────────────────
+function loop() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
